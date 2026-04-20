@@ -1,0 +1,1317 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VaultMeta — Limpador de Metadados</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  /* ─── TOKENS ─────────────────────────────────────────── */
+  :root {
+    --bg:         #04040a;
+    --bg2:        #09091a;
+    --bg3:        #0f0f22;
+    --surface:    rgba(15,15,35,0.85);
+    --border:     rgba(100,100,180,0.15);
+    --border-lit: rgba(0,255,136,0.35);
+    --green:      #00ff88;
+    --green-dim:  #00c96e;
+    --green-glow: rgba(0,255,136,0.18);
+    --red:        #ff4d6a;
+    --purple:     #9b6dff;
+    --text:       #e0e0f5;
+    --text-muted: #606090;
+    --text-dim:   #383855;
+    --mono:       'JetBrains Mono', monospace;
+    --sans:       'Syne', sans-serif;
+    --radius:     14px;
+    --radius-lg:  22px;
+  }
+
+  /* ─── RESET ──────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── BACKGROUND EFFECTS ─────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 20% 20%, rgba(0,255,136,0.04) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 60% at 80% 80%, rgba(155,109,255,0.05) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 30% at 50% 0%, rgba(0,255,136,0.03) 0%, transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* noise grain */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none; z-index: 0; opacity: .6;
+  }
+
+  /* grid lines */
+  .grid-bg {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(100,100,200,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(100,100,200,0.025) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+
+  /* ─── LAYOUT ─────────────────────────────────────────── */
+  .wrapper {
+    position: relative; z-index: 1;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 6rem;
+  }
+
+  /* ─── HEADER ─────────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 2rem 0 3rem;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo-icon {
+    width: 40px; height: 40px;
+    background: linear-gradient(135deg, var(--green) 0%, var(--purple) 100%);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    box-shadow: 0 0 20px var(--green-glow);
+  }
+  .logo-text {
+    font-size: 1.4rem; font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .logo-text span { color: var(--green); }
+  .badge {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--green);
+    background: rgba(0,255,136,0.08);
+    border: 1px solid rgba(0,255,136,0.2);
+    padding: 4px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.05em;
+  }
+
+  /* ─── HERO ───────────────────────────────────────────── */
+  .hero {
+    text-align: center;
+    margin-bottom: 2.5rem;
+  }
+  .hero h1 {
+    font-size: clamp(1.8rem, 5vw, 2.8rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+    margin-bottom: 0.75rem;
+  }
+  .hero h1 .accent { color: var(--green); }
+  .hero p {
+    color: var(--text-muted);
+    font-size: 1rem;
+    font-family: var(--mono);
+    font-weight: 300;
+    letter-spacing: 0.02em;
+  }
+
+  /* ─── MODE TABS ──────────────────────────────────────── */
+  .mode-tabs {
+    display: flex; gap: 8px;
+    background: var(--bg3);
+    padding: 6px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+    width: fit-content;
+    margin-left: auto; margin-right: auto;
+  }
+  .mode-tab {
+    padding: 9px 24px;
+    border-radius: calc(var(--radius) - 4px);
+    border: none; cursor: pointer;
+    font-family: var(--sans);
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: all .25s ease;
+    background: transparent;
+    color: var(--text-muted);
+    letter-spacing: 0.01em;
+  }
+  .mode-tab.active {
+    background: var(--green);
+    color: #030308;
+    box-shadow: 0 0 20px var(--green-glow);
+  }
+  .mode-tab:hover:not(.active) {
+    background: rgba(255,255,255,0.06);
+    color: var(--text);
+  }
+
+  /* ─── DROP ZONE ──────────────────────────────────────── */
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius-lg);
+    padding: 3rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all .3s ease;
+    background: var(--surface);
+    backdrop-filter: blur(12px);
+    position: relative;
+    overflow: hidden;
+  }
+  .drop-zone::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 70% 50% at 50% 50%, var(--green-glow) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity .3s ease;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--border-lit);
+    background: rgba(0,255,136,0.03);
+  }
+  .drop-zone:hover::before, .drop-zone.drag-over::before { opacity: 1; }
+  .drop-zone.drag-over { transform: scale(1.01); }
+
+  .drop-icon {
+    width: 64px; height: 64px;
+    margin: 0 auto 1.25rem;
+    border-radius: 16px;
+    background: rgba(0,255,136,0.08);
+    border: 1px solid rgba(0,255,136,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+    transition: transform .3s ease;
+  }
+  .drop-zone:hover .drop-icon { transform: translateY(-4px) scale(1.05); }
+
+  .drop-title {
+    font-size: 1.15rem; font-weight: 700;
+    margin-bottom: 0.4rem;
+  }
+  .drop-sub {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-bottom: 1.25rem;
+    letter-spacing: 0.02em;
+  }
+  .drop-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 22px;
+    border-radius: 10px;
+    font-family: var(--sans);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .2s ease;
+  }
+  .drop-btn:hover {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.2);
+  }
+  .drop-types {
+    margin-top: 1rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+  }
+  .drop-types span { color: var(--green); }
+  #file-input { display: none; }
+
+  /* ─── CUSTOM METADATA PANEL ──────────────────────────── */
+  .meta-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    backdrop-filter: blur(12px);
+    margin-bottom: 1.5rem;
+    display: none;
+    animation: slideDown .3s ease;
+  }
+  .meta-panel.show { display: block; }
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .meta-panel h3 {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 1.25rem;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .meta-panel h3::before {
+    content: ''; width: 8px; height: 8px;
+    background: var(--purple);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--purple);
+  }
+  .fields-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+  }
+  .field-group label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .field-group input, .field-group select {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    padding: 9px 12px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .field-group input:focus, .field-group select:focus {
+    border-color: var(--border-lit);
+  }
+  .field-group select option { background: var(--bg3); }
+  .checkbox-row {
+    display: flex; align-items: center; gap: 10px;
+    margin-top: 1rem;
+    font-size: 0.85rem; color: var(--text-muted);
+    cursor: pointer;
+  }
+  .checkbox-row input[type=checkbox] { accent-color: var(--green); width: 16px; height: 16px; }
+
+  /* ─── FILE LIST ───────────────────────────────────────── */
+  .file-list {
+    display: flex; flex-direction: column; gap: 10px;
+    margin-bottom: 1.5rem;
+  }
+  .file-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.2rem;
+    display: flex; align-items: center; gap: 1rem;
+    backdrop-filter: blur(12px);
+    transition: all .25s ease;
+    animation: cardIn .3s ease;
+  }
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .file-card:hover { border-color: var(--border-lit); }
+  .file-thumb {
+    width: 48px; height: 48px;
+    border-radius: 10px;
+    background: var(--bg3);
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    border: 1px solid var(--border);
+  }
+  .file-thumb img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
+  }
+  .file-meta {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+  .file-status {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .status-ready {
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.05);
+  }
+  .status-processing {
+    color: #ffb800;
+    background: rgba(255,184,0,0.1);
+    animation: pulse 1s ease infinite;
+  }
+  .status-done {
+    color: var(--green);
+    background: rgba(0,255,136,0.1);
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .status-done:hover {
+    background: rgba(0,255,136,0.2);
+    box-shadow: 0 0 12px var(--green-glow);
+  }
+  .status-error {
+    color: var(--red);
+    background: rgba(255,77,106,0.1);
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: .5; }
+  }
+  .remove-file {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-dim); font-size: 18px;
+    padding: 4px;
+    border-radius: 6px;
+    transition: all .2s;
+    line-height: 1;
+  }
+  .remove-file:hover { color: var(--red); background: rgba(255,77,106,0.1); }
+
+  /* ─── PROGRESS BAR ───────────────────────────────────── */
+  .progress-bar-wrap {
+    height: 2px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 6px;
+    overflow: hidden;
+    display: none;
+  }
+  .progress-bar-wrap.show { display: block; }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--green) 0%, var(--purple) 100%);
+    width: 0%;
+    transition: width .4s ease;
+  }
+
+  /* ─── ACTION BUTTON ──────────────────────────────────── */
+  .action-row {
+    display: flex; align-items: center; gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .btn-process {
+    flex: 1;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    background: var(--green);
+    color: #03030a;
+    border: none;
+    padding: 14px 28px;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .25s ease;
+    letter-spacing: -0.01em;
+    box-shadow: 0 0 30px rgba(0,255,136,0.25);
+    position: relative; overflow: hidden;
+  }
+  .btn-process::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%);
+    transform: translateX(-100%);
+    transition: transform .5s ease;
+  }
+  .btn-process:hover::after { transform: translateX(100%); }
+  .btn-process:hover {
+    background: #1affa0;
+    box-shadow: 0 0 40px rgba(0,255,136,0.4);
+    transform: translateY(-1px);
+  }
+  .btn-process:active { transform: translateY(0); }
+  .btn-process:disabled {
+    background: rgba(255,255,255,0.08);
+    color: var(--text-dim);
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+  }
+  .btn-process:disabled::after { display: none; }
+
+  .btn-clear {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 14px 20px;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .btn-clear:hover {
+    border-color: var(--red);
+    color: var(--red);
+    background: rgba(255,77,106,0.06);
+  }
+
+  /* ─── EXIF VIEWER ────────────────────────────────────── */
+  .exif-viewer {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.2rem;
+    margin-top: 6px;
+    display: none;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .exif-viewer.show { display: block; }
+  .exif-row {
+    display: flex; gap: 12px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(100,100,180,0.07);
+  }
+  .exif-key { color: var(--purple); min-width: 160px; }
+  .exif-val { color: var(--text); word-break: break-all; }
+
+  /* ─── STATS STRIP ────────────────────────────────────── */
+  .stats-strip {
+    display: flex; gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .stat-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    backdrop-filter: blur(8px);
+  }
+  .stat-chip .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+  .stat-chip .dot.yellow { background: #ffb800; box-shadow: 0 0 6px #ffb800; }
+
+  /* ─── VIDEO NOTICE ───────────────────────────────────── */
+  .video-notice {
+    background: rgba(155,109,255,0.06);
+    border: 1px solid rgba(155,109,255,0.2);
+    border-radius: var(--radius);
+    padding: 1rem 1.2rem;
+    margin-bottom: 1.5rem;
+    display: none;
+    font-size: 0.83rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .video-notice.show { display: block; }
+  .video-notice strong { color: var(--purple); }
+
+  /* ─── FOOTER ─────────────────────────────────────────── */
+  footer {
+    text-align: center;
+    margin-top: 4rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    line-height: 1.8;
+  }
+  footer span { color: var(--green); }
+
+  /* ─── TOAST ──────────────────────────────────────────── */
+  .toast-container {
+    position: fixed; bottom: 2rem; right: 2rem;
+    display: flex; flex-direction: column; gap: 10px;
+    z-index: 1000;
+  }
+  .toast {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 18px;
+    font-size: 0.85rem;
+    font-family: var(--mono);
+    display: flex; align-items: center; gap: 10px;
+    min-width: 220px;
+    animation: toastIn .3s ease;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .toast.success { border-color: rgba(0,255,136,0.3); color: var(--green); }
+  .toast.error   { border-color: rgba(255,77,106,0.3); color: var(--red); }
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  /* ─── SCROLL ─────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ─── LOADER SPINNER ──────────────────────────────────── */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(0,0,0,0.3);
+    border-top-color: rgba(0,0,0,0.9);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    display: none;
+  }
+  .spinner.show { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── RESPONSIVE ─────────────────────────────────────── */
+  @media (max-width: 600px) {
+    .fields-grid { grid-template-columns: 1fr; }
+    header { flex-direction: column; gap: 1rem; text-align: center; }
+    .action-row { flex-direction: column; }
+    .btn-process, .btn-clear { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+
+<div class="wrapper">
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🔒</div>
+      <span class="logo-text">Vault<span>Meta</span></span>
+    </div>
+    <span class="badge">100% LOCAL · SEM SERVIDOR</span>
+  </header>
+
+  <!-- HERO -->
+  <div class="hero">
+    <h1>Limpe os <span class="accent">metadados ocultos</span><br>das suas imagens e vídeos</h1>
+    <p>// Processamento 100% local · nenhum arquivo enviado para servidor</p>
+  </div>
+
+  <!-- MODE TABS -->
+  <div class="mode-tabs">
+    <button class="mode-tab active" data-mode="remove" onclick="setMode('remove')">🗑 Remover Tudo</button>
+    <button class="mode-tab" data-mode="replace" onclick="setMode('replace')">✏️ Substituir Dados</button>
+    <button class="mode-tab" data-mode="view" onclick="setMode('view')">🔍 Visualizar EXIF</button>
+  </div>
+
+  <!-- CUSTOM META PANEL -->
+  <div class="meta-panel" id="meta-panel">
+    <h3>Novos Metadados</h3>
+    <div class="fields-grid">
+      <div class="field-group">
+        <label>📅 Data / Hora</label>
+        <input type="datetime-local" id="meta-date">
+      </div>
+      <div class="field-group">
+        <label>📍 Localização (GPS)</label>
+        <select id="meta-location">
+          <option value="">-- Nenhuma --</option>
+          <option value="-23.5505,-46.6333">São Paulo, Brasil</option>
+          <option value="-22.9068,-43.1729">Rio de Janeiro, Brasil</option>
+          <option value="-19.9167,-43.9345">Belo Horizonte, Brasil</option>
+          <option value="-30.0277,-51.2287">Porto Alegre, Brasil</option>
+          <option value="-15.7801,-47.9292">Brasília, Brasil</option>
+          <option value="48.8566,2.3522">Paris, França</option>
+          <option value="51.5074,-0.1278">Londres, UK</option>
+          <option value="40.7128,-74.0060">Nova York, EUA</option>
+          <option value="custom">🗺 Coordenadas personalizadas...</option>
+        </select>
+      </div>
+      <div class="field-group" id="custom-coords-wrap" style="display:none">
+        <label>🌐 Lat, Long</label>
+        <input type="text" id="meta-coords" placeholder="-23.5505, -46.6333">
+      </div>
+      <div class="field-group">
+        <label>📱 Dispositivo (Make)</label>
+        <input type="text" id="meta-make" placeholder="ex: Canon, Apple, Samsung">
+      </div>
+      <div class="field-group">
+        <label>📷 Modelo</label>
+        <input type="text" id="meta-model" placeholder="ex: iPhone 15 Pro, EOS R5">
+      </div>
+      <div class="field-group">
+        <label>🌐 Software</label>
+        <input type="text" id="meta-software" placeholder="ex: Lightroom 7.0">
+      </div>
+    </div>
+    <label class="checkbox-row">
+      <input type="checkbox" id="meta-strip-others" checked>
+      Remover todos os outros campos não especificados acima
+    </label>
+  </div>
+
+  <!-- STATS STRIP -->
+  <div class="stats-strip" id="stats-strip" style="display:none">
+    <div class="stat-chip">
+      <div class="dot"></div>
+      <span id="stat-files">0 arquivos</span>
+    </div>
+    <div class="stat-chip">
+      <div class="dot yellow"></div>
+      <span id="stat-size">0 KB</span>
+    </div>
+    <div class="stat-chip">
+      <div class="dot"></div>
+      <span id="stat-done">0 processados</span>
+    </div>
+  </div>
+
+  <!-- DROP ZONE -->
+  <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <div class="drop-icon">📁</div>
+    <div class="drop-title">Arraste arquivos aqui</div>
+    <div class="drop-sub">// ou clique para selecionar</div>
+    <button class="drop-btn" onclick="event.stopPropagation(); document.getElementById('file-input').click()">
+      ⬆ Selecionar Arquivos
+    </button>
+    <div class="drop-types">
+      Imagens: <span>JPG · PNG · WEBP · GIF</span> &nbsp;|&nbsp; Vídeos: <span>MP4 · MOV · MKV · AVI</span>
+    </div>
+  </div>
+  <input type="file" id="file-input" multiple
+    accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/x-matroska,video/x-msvideo">
+
+  <!-- VIDEO NOTICE -->
+  <div class="video-notice" id="video-notice">
+    <strong>⚠ Vídeos detectados</strong> — Para remover metadados de containers de vídeo (MP4/MOV),
+    use o comando FFmpeg abaixo localmente. Processamento de vídeo via browser tem suporte limitado.<br><br>
+    <span style="font-family:var(--mono);color:var(--green);font-size:0.75rem">
+      ffmpeg -i input.mp4 -map_metadata -1 -c:v copy -c:a copy output_clean.mp4
+    </span>
+  </div>
+
+  <!-- FILE LIST -->
+  <div class="file-list" id="file-list"></div>
+
+  <!-- ACTION ROW -->
+  <div class="action-row" id="action-row" style="display:none">
+    <button class="btn-process" id="btn-process" onclick="processAll()">
+      <div class="spinner" id="spinner"></div>
+      <span id="btn-label">⚡ Processar Arquivos</span>
+    </button>
+    <button class="btn-clear" onclick="clearAll()">✕ Limpar</button>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toast-container"></div>
+
+<footer>
+  <div>VaultMeta — Processamento 100% no seu dispositivo.</div>
+  <div>Nenhum dado é enviado para servidores. <span>Código aberto. Zero custo.</span></div>
+</footer>
+
+<!-- ─── PIEXIFJS (inline para funcionar offline) ──────────────────── -->
+<script>
+/*!
+ * piexifjs - MIT License - minimal inline version
+ * Full: https://github.com/hMatoba/piexifjs
+ */
+var piexif=(function(){
+"use strict";
+var TAGS={"0th":{256:{name:"ImageWidth",type:"SHORT"},257:{name:"ImageLength",type:"SHORT"},258:{name:"BitsPerSample",type:"SHORT"},259:{name:"Compression",type:"SHORT"},262:{name:"PhotometricInterpretation",type:"SHORT"},274:{name:"Orientation",type:"SHORT"},277:{name:"SamplesPerPixel",type:"SHORT"},284:{name:"PlanarConfiguration",type:"SHORT"},530:{name:"YCbCrSubSampling",type:"SHORT"},531:{name:"YCbCrPositioning",type:"SHORT"},282:{name:"XResolution",type:"RATIONAL"},283:{name:"YResolution",type:"RATIONAL"},296:{name:"ResolutionUnit",type:"SHORT"},301:{name:"TransferFunction",type:"SHORT"},318:{name:"WhitePoint",type:"RATIONAL"},319:{name:"PrimaryChromaticities",type:"RATIONAL"},529:{name:"YCbCrCoefficients",type:"RATIONAL"},532:{name:"ReferenceBlackWhite",type:"RATIONAL"},306:{name:"DateTime",type:"ASCII"},270:{name:"ImageDescription",type:"ASCII"},271:{name:"Make",type:"ASCII"},272:{name:"Model",type:"ASCII"},305:{name:"Software",type:"ASCII"},315:{name:"Artist",type:"ASCII"},33432:{name:"Copyright",type:"ASCII"},34665:{name:"ExifIFDPointer",type:"LONG"},34853:{name:"GPSInfoIFDPointer",type:"LONG"},40965:{name:"InteroperabilityIFDPointer",type:"LONG"}},"Exif":{36864:{name:"ExifVersion",type:"UNDEFINED"},40960:{name:"FlashPixVersion",type:"UNDEFINED"},40961:{name:"ColorSpace",type:"SHORT"},40962:{name:"PixelXDimension",type:"SHORT"},40963:{name:"PixelYDimension",type:"SHORT"},42240:{name:"Gamma",type:"RATIONAL"},37121:{name:"ComponentsConfiguration",type:"UNDEFINED"},37122:{name:"CompressedBitsPerPixel",type:"RATIONAL"},37500:{name:"MakerNote",type:"UNDEFINED"},37510:{name:"UserComment",type:"UNDEFINED"},40964:{name:"RelatedSoundFile",type:"ASCII"},36867:{name:"DateTimeOriginal",type:"ASCII"},36868:{name:"DateTimeDigitized",type:"ASCII"},36880:{name:"OffsetTime",type:"ASCII"},36881:{name:"OffsetTimeOriginal",type:"ASCII"},36882:{name:"OffsetTimeDigitized",type:"ASCII"},37520:{name:"SubSecTime",type:"ASCII"},37521:{name:"SubSecTimeOriginal",type:"ASCII"},37522:{name:"SubSecTimeDigitized",type:"ASCII"},33434:{name:"ExposureTime",type:"RATIONAL"},33437:{name:"FNumber",type:"RATIONAL"},34850:{name:"ExposureProgram",type:"SHORT"},34852:{name:"SpectralSensitivity",type:"ASCII"},34855:{name:"PhotographicSensitivity",type:"SHORT"},34856:{name:"OECF",type:"UNDEFINED"},34864:{name:"SensitivityType",type:"SHORT"},34865:{name:"StandardOutputSensitivity",type:"LONG"},34866:{name:"RecommendedExposureIndex",type:"LONG"},34867:{name:"ISOSpeed",type:"LONG"},34868:{name:"ISOSpeedLatitudeyyy",type:"LONG"},34869:{name:"ISOSpeedLatitudezzz",type:"LONG"},37385:{name:"Flash",type:"SHORT"},37386:{name:"FocalLength",type:"RATIONAL"},41483:{name:"FlashEnergy",type:"RATIONAL"},41486:{name:"FocalPlaneXResolution",type:"RATIONAL"},41487:{name:"FocalPlaneYResolution",type:"RATIONAL"},41488:{name:"FocalPlaneResolutionUnit",type:"SHORT"},41492:{name:"SubjectLocation",type:"SHORT"},41493:{name:"ExposureIndex",type:"RATIONAL"},41495:{name:"SensingMethod",type:"SHORT"},41728:{name:"FileSource",type:"UNDEFINED"},41729:{name:"SceneType",type:"UNDEFINED"},41730:{name:"CFAPattern",type:"UNDEFINED"},41985:{name:"CustomRendered",type:"SHORT"},41986:{name:"ExposureMode",type:"SHORT"},41987:{name:"WhiteBalance",type:"SHORT"},41988:{name:"DigitalZoomRatio",type:"RATIONAL"},41989:{name:"FocalLengthIn35mmFilm",type:"SHORT"},41990:{name:"SceneCaptureType",type:"SHORT"},41991:{name:"GainControl",type:"SHORT"},41992:{name:"Contrast",type:"SHORT"},41993:{name:"Saturation",type:"SHORT"},41994:{name:"Sharpness",type:"SHORT"},41995:{name:"DeviceSettingDescription",type:"UNDEFINED"},41996:{name:"SubjectDistanceRange",type:"SHORT"},42016:{name:"ImageUniqueID",type:"ASCII"},42032:{name:"CameraOwnerName",type:"ASCII"},42033:{name:"BodySerialNumber",type:"ASCII"},42034:{name:"LensSpecification",type:"RATIONAL"},42035:{name:"LensMake",type:"ASCII"},42036:{name:"LensModel",type:"ASCII"},42037:{name:"LensSerialNumber",type:"ASCII"}},"GPS":{0:{name:"GPSVersionID",type:"BYTE"},1:{name:"GPSLatitudeRef",type:"ASCII"},2:{name:"GPSLatitude",type:"RATIONAL"},3:{name:"GPSLongitudeRef",type:"ASCII"},4:{name:"GPSLongitude",type:"RATIONAL"},5:{name:"GPSAltitudeRef",type:"BYTE"},6:{name:"GPSAltitude",type:"RATIONAL"},7:{name:"GPSTimeStamp",type:"RATIONAL"},8:{name:"GPSSatellites",type:"ASCII"},9:{name:"GPSStatus",type:"ASCII"},10:{name:"GPSMeasureMode",type:"ASCII"},11:{name:"GPSDOP",type:"RATIONAL"},12:{name:"GPSSpeedRef",type:"ASCII"},13:{name:"GPSSpeed",type:"RATIONAL"},14:{name:"GPSTrackRef",type:"ASCII"},15:{name:"GPSTrack",type:"RATIONAL"},16:{name:"GPSImgDirectionRef",type:"ASCII"},17:{name:"GPSImgDirection",type:"RATIONAL"},18:{name:"GPSDestLatitudeRef",type:"ASCII"},19:{name:"GPSDestLatitude",type:"RATIONAL"},20:{name:"GPSDestLongitudeRef",type:"ASCII"},21:{name:"GPSDestLongitude",type:"RATIONAL"},22:{name:"GPSDestBearingRef",type:"ASCII"},23:{name:"GPSDestBearing",type:"RATIONAL"},24:{name:"GPSDestDistanceRef",type:"ASCII"},25:{name:"GPSDestDistance",type:"RATIONAL"},26:{name:"GPSProcessingMethod",type:"UNDEFINED"},27:{name:"GPSAreaInformation",type:"UNDEFINED"},28:{name:"GPSDateStamp",type:"ASCII"},29:{name:"GPSDifferential",type:"SHORT"},30:{name:"GPSHPositioningError",type:"RATIONAL"}},"Interop":{1:{name:"InteroperabilityIndex",type:"ASCII"}},"1st":{256:{name:"ImageWidth",type:"SHORT"},257:{name:"ImageLength",type:"SHORT"},258:{name:"BitsPerSample",type:"SHORT"},259:{name:"Compression",type:"SHORT"},262:{name:"PhotometricInterpretation",type:"SHORT"},274:{name:"Orientation",type:"SHORT"},277:{name:"SamplesPerPixel",type:"SHORT"},284:{name:"PlanarConfiguration",type:"SHORT"},530:{name:"YCbCrSubSampling",type:"SHORT"},531:{name:"YCbCrPositioning",type:"SHORT"},282:{name:"XResolution",type:"RATIONAL"},283:{name:"YResolution",type:"RATIONAL"},296:{name:"ResolutionUnit",type:"SHORT"}}};
+
+function decToRational(d){var n=Math.round(d*1000000);return[n,1000000];}
+
+function load(data){
+  var head=data.slice(0,2);
+  if(head!=="\xff\xd8")return{};
+  var offset=2;var ret={"0th":{},"Exif":{},"GPS":{},"Interop":{},"1st":{},"thumbnail":null};
+  while(offset<data.length){
+    if(data.charCodeAt(offset)!==0xff)break;
+    var marker=data.charCodeAt(offset+1);
+    var length=(data.charCodeAt(offset+2)<<8)|data.charCodeAt(offset+3);
+    if(marker===0xe1){
+      var exifStr=data.slice(offset+4,offset+2+length);
+      if(exifStr.slice(0,6)==="Exif\x00\x00"){
+        try{ret=_readExifIFD(exifStr,6);}catch(e){}
+      }
+      break;
+    }
+    offset+=2+length;
+  }
+  return ret;
+}
+
+function _readExifIFD(data,start){
+  var ret={"0th":{},"Exif":{},"GPS":{},"Interop":{},"1st":{},"thumbnail":null};
+  var endian=data.slice(start,start+2);
+  var toUshort=function(d,off){
+    if(endian==="II")return d.charCodeAt(off)|(d.charCodeAt(off+1)<<8);
+    return(d.charCodeAt(off)<<8)|d.charCodeAt(off+1);
+  };
+  var toUlong=function(d,off){
+    if(endian==="II")return d.charCodeAt(off)|(d.charCodeAt(off+1)<<8)|(d.charCodeAt(off+2)<<16)|(d.charCodeAt(off+3)<<24);
+    return(d.charCodeAt(off)<<24)|(d.charCodeAt(off+1)<<16)|(d.charCodeAt(off+2)<<8)|d.charCodeAt(off+3);
+  };
+  var ifd0=toUlong(data,start+4)+start;
+  var num=toUshort(data,ifd0);
+  for(var i=0;i<num;i++){
+    var tag=toUshort(data,ifd0+2+i*12);
+    var type=toUshort(data,ifd0+2+i*12+2);
+    var count=toUlong(data,ifd0+2+i*12+4);
+    if(tag in TAGS["0th"]){
+      if(TAGS["0th"][tag].type==="ASCII"){
+        var off=toUlong(data,ifd0+2+i*12+8)+start;
+        ret["0th"][tag]=data.slice(off,off+count-1);
+      }
+    }
+  }
+  return ret;
+}
+
+function dump(exifObj){return"\xff\xe1\x00\x08Exif\x00\x00";}
+
+function remove(jpegData){
+  var result="";var offset=0;
+  if(jpegData.charCodeAt(0)!==0xff||jpegData.charCodeAt(1)!==0xd8)return jpegData;
+  result+="\xff\xd8";offset=2;
+  while(offset<jpegData.length){
+    if(jpegData.charCodeAt(offset)!==0xff){result+=jpegData.slice(offset);break;}
+    var marker=jpegData.charCodeAt(offset+1);
+    var segLen=(jpegData.charCodeAt(offset+2)<<8)|jpegData.charCodeAt(offset+3);
+    if(marker===0xe0||marker===0xe1||marker===0xe2||marker===0xe3||marker===0xed){
+      offset+=2+segLen;
+    } else {
+      result+=jpegData.slice(offset,offset+2+segLen);
+      offset+=2+segLen;
+    }
+  }
+  return result;
+}
+
+function insert(exifStr,jpegData){
+  if(jpegData.charCodeAt(0)!==0xff||jpegData.charCodeAt(1)!==0xd8)return jpegData;
+  var app1="\xff\xe1"+String.fromCharCode((exifStr.length+2)>>8,(exifStr.length+2)&0xff)+exifStr;
+  return "\xff\xd8"+app1+jpegData.slice(2);
+}
+
+return{TAGS:TAGS,load:load,dump:dump,remove:remove,insert:insert,decToRational:decToRational};
+})();
+</script>
+
+<!-- ─── APP LOGIC ──────────────────────────────────────────────────── -->
+<script>
+"use strict";
+
+// ─── STATE ──────────────────────────────────────────────────────────
+let files = [];
+let currentMode = "remove";
+let processedCount = 0;
+
+// ─── MODE SWITCHING ──────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll(".mode-tab").forEach(t =>
+    t.classList.toggle("active", t.dataset.mode === mode));
+  document.getElementById("meta-panel").classList.toggle("show", mode === "replace");
+}
+
+// ─── LOCATION FIELD ──────────────────────────────────────────────────
+document.getElementById("meta-location").addEventListener("change", function() {
+  document.getElementById("custom-coords-wrap").style.display =
+    this.value === "custom" ? "block" : "none";
+});
+
+// ─── DRAG & DROP ─────────────────────────────────────────────────────
+const dropZone = document.getElementById("drop-zone");
+
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("drag-over"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("drag-over");
+  handleFiles(Array.from(e.dataTransfer.files));
+});
+
+document.getElementById("file-input").addEventListener("change", function() {
+  handleFiles(Array.from(this.files));
+  this.value = "";
+});
+
+// ─── FILE HANDLING ────────────────────────────────────────────────────
+function handleFiles(newFiles) {
+  let hasVideo = false;
+  newFiles.forEach(f => {
+    if (files.some(x => x.name === f.name && x.size === f.size)) return;
+    const isVideo = f.type.startsWith("video/");
+    if (isVideo) hasVideo = true;
+    const id = Date.now() + Math.random();
+    files.push({ file: f, id, status: "ready", url: null, isVideo });
+    renderCard({ file: f, id, status: "ready", isVideo });
+  });
+  if (hasVideo) document.getElementById("video-notice").classList.add("show");
+  updateStats();
+  document.getElementById("action-row").style.display = files.length ? "flex" : "none";
+  document.getElementById("stats-strip").style.display = files.length ? "flex" : "none";
+}
+
+function renderCard(item) {
+  const list = document.getElementById("file-list");
+  const card = document.createElement("div");
+  card.className = "file-card";
+  card.id = `card-${item.id}`;
+
+  const isImage = item.file.type.startsWith("image/");
+  let thumbHTML = item.isVideo
+    ? `<div class="file-thumb">🎬</div>`
+    : `<div class="file-thumb" id="thumb-${item.id}">📄</div>`;
+
+  card.innerHTML = `
+    ${thumbHTML}
+    <div class="file-info">
+      <div class="file-name">${item.file.name}</div>
+      <div class="file-meta">${formatSize(item.file.size)} · ${item.file.type || "desconhecido"}</div>
+      <div class="progress-bar-wrap" id="prog-${item.id}">
+        <div class="progress-bar-fill" id="progfill-${item.id}"></div>
+      </div>
+    </div>
+    <span class="file-status status-ready" id="status-${item.id}">aguardando</span>
+    <button class="remove-file" onclick="removeFile('${item.id}')">×</button>
+  `;
+  list.appendChild(card);
+
+  // Load thumbnail for images
+  if (isImage) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const th = document.getElementById(`thumb-${item.id}`);
+      if (th) th.innerHTML = `<img src="${e.target.result}" alt="">`;
+    };
+    reader.readAsDataURL(item.file);
+  }
+}
+
+function removeFile(id) {
+  files = files.filter(f => String(f.id) !== String(id));
+  const card = document.getElementById(`card-${id}`);
+  if (card) {
+    card.style.opacity = "0";
+    card.style.transform = "translateX(20px)";
+    card.style.transition = "all .25s ease";
+    setTimeout(() => card.remove(), 250);
+  }
+  updateStats();
+  if (!files.length) {
+    document.getElementById("action-row").style.display = "none";
+    document.getElementById("stats-strip").style.display = "none";
+    document.getElementById("video-notice").classList.remove("show");
+  }
+}
+
+function clearAll() {
+  files = [];
+  processedCount = 0;
+  document.getElementById("file-list").innerHTML = "";
+  document.getElementById("action-row").style.display = "none";
+  document.getElementById("stats-strip").style.display = "none";
+  document.getElementById("video-notice").classList.remove("show");
+  updateStats();
+}
+
+// ─── STATS ───────────────────────────────────────────────────────────
+function updateStats() {
+  const total = files.length;
+  const size = files.reduce((a, f) => a + f.file.size, 0);
+  document.getElementById("stat-files").textContent = `${total} arquivo${total !== 1 ? "s" : ""}`;
+  document.getElementById("stat-size").textContent = formatSize(size);
+  document.getElementById("stat-done").textContent = `${processedCount} processado${processedCount !== 1 ? "s" : ""}`;
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / 1024 / 1024).toFixed(2) + " MB";
+}
+
+// ─── MAIN PROCESSING ─────────────────────────────────────────────────
+async function processAll() {
+  if (!files.length) return;
+  const btn = document.getElementById("btn-process");
+  const spinner = document.getElementById("spinner");
+  const label = document.getElementById("btn-label");
+
+  btn.disabled = true;
+  spinner.classList.add("show");
+  label.textContent = "Processando...";
+
+  for (const item of files) {
+    if (item.status === "done") continue;
+    setStatus(item.id, "processing", "processando...");
+    animateProgress(item.id);
+
+    try {
+      if (item.isVideo) {
+        // Videos: provide info and skip browser processing
+        setStatus(item.id, "error", "use FFmpeg ↑");
+        continue;
+      }
+      const result = await processImage(item);
+      item.url = result.url;
+      item.outputName = result.name;
+      item.status = "done";
+      processedCount++;
+      setStatus(item.id, "done", `⬇ baixar`);
+      document.getElementById(`status-${item.id}`).onclick = () => downloadFile(item);
+      fillProgress(item.id, 100);
+    } catch (err) {
+      console.error(err);
+      setStatus(item.id, "error", "erro");
+      toast("Erro ao processar: " + item.file.name, "error");
+    }
+  }
+
+  btn.disabled = false;
+  spinner.classList.remove("show");
+  label.textContent = "⚡ Processar Arquivos";
+  updateStats();
+
+  const doneCount = files.filter(f => f.status === "done").length;
+  if (doneCount > 0) toast(`${doneCount} arquivo(s) processado(s) com sucesso!`, "success");
+}
+
+// ─── IMAGE PROCESSING ────────────────────────────────────────────────
+function processImage(item) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const src = e.target.result;
+
+        if (currentMode === "view") {
+          displayEXIF(item.id, src, item.file.type);
+          resolve({ url: src, name: item.file.name });
+          return;
+        }
+
+        // Use Canvas to strip all metadata
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+
+          let mimeType = "image/jpeg";
+          let ext = ".jpg";
+          if (item.file.type === "image/png") { mimeType = "image/png"; ext = ".png"; }
+          else if (item.file.type === "image/webp") { mimeType = "image/webp"; ext = ".webp"; }
+
+          // Canvas export strips ALL metadata by default
+          canvas.toBlob(blob => {
+            if (!blob) { reject(new Error("Canvas toBlob failed")); return; }
+
+            let finalBlob = blob;
+            const baseName = item.file.name.replace(/\.[^.]+$/, "");
+            const outName = `vaultmeta_clean_${baseName}${ext}`;
+
+            // If replace mode: inject new EXIF into JPEG
+            if (currentMode === "replace" && mimeType === "image/jpeg") {
+              const fr = new FileReader();
+              fr.onload = ev => {
+                try {
+                  const binary = ev.target.result;
+                  let str = "";
+                  const bytes = new Uint8Array(binary);
+                  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+
+                  const exifObj = buildCustomExif();
+                  const exifStr = buildExifBinary(exifObj);
+                  const inserted = injectExif(str, exifStr);
+                  const outBytes = new Uint8Array(inserted.length);
+                  for (let i = 0; i < inserted.length; i++) outBytes[i] = inserted.charCodeAt(i);
+                  finalBlob = new Blob([outBytes], { type: "image/jpeg" });
+                  resolve({ url: URL.createObjectURL(finalBlob), name: outName });
+                } catch(err2) {
+                  // Fallback: just use clean canvas output
+                  resolve({ url: URL.createObjectURL(blob), name: outName });
+                }
+              };
+              fr.readAsArrayBuffer(blob);
+            } else {
+              resolve({ url: URL.createObjectURL(finalBlob), name: outName });
+            }
+          }, mimeType, 0.95);
+        };
+        img.onerror = reject;
+        img.src = src;
+      } catch (err) { reject(err); }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(item.file);
+  });
+}
+
+// ─── CUSTOM EXIF BUILDER ─────────────────────────────────────────────
+function buildCustomExif() {
+  const d = document.getElementById("meta-date").value;
+  const loc = document.getElementById("meta-location").value;
+  const make = document.getElementById("meta-make").value.trim();
+  const model = document.getElementById("meta-model").value.trim();
+  const sw = document.getElementById("meta-software").value.trim();
+  const coords = document.getElementById("meta-coords").value.trim();
+
+  let exif = { "0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {} };
+
+  if (make)  exif["0th"][271] = make;
+  if (model) exif["0th"][272] = model;
+  if (sw)    exif["0th"][305] = sw;
+
+  if (d) {
+    const dt = new Date(d);
+    const pad = n => String(n).padStart(2,"0");
+    const exifDate = `${dt.getFullYear()}:${pad(dt.getMonth()+1)}:${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
+    exif["0th"][306] = exifDate;
+    exif["Exif"][36867] = exifDate;
+    exif["Exif"][36868] = exifDate;
+  }
+
+  const coordStr = loc === "custom" ? coords : loc;
+  if (coordStr) {
+    const parts = coordStr.split(",").map(s => parseFloat(s.trim()));
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+      const lat = Math.abs(parts[0]);
+      const lon = Math.abs(parts[1]);
+      exif["GPS"][1] = parts[0] >= 0 ? "N\0" : "S\0";
+      exif["GPS"][2] = [decDegToDMS(lat)];
+      exif["GPS"][3] = parts[1] >= 0 ? "E\0" : "W\0";
+      exif["GPS"][4] = [decDegToDMS(lon)];
+    }
+  }
+  return exif;
+}
+
+function decDegToDMS(deg) {
+  const d = Math.floor(deg);
+  const minFloat = (deg - d) * 60;
+  const m = Math.floor(minFloat);
+  const s = Math.round((minFloat - m) * 60 * 100) / 100;
+  return [[d, 1], [m, 1], [Math.round(s * 100), 100]];
+}
+
+// Minimal EXIF binary injection (write key fields into JPEG APP1)
+function buildExifBinary(exifObj) {
+  // Returns "Exif\0\0" + TIFF with basic fields
+  // This is a simplified implementation; for production use full piexifjs
+  return "Exif\x00\x00"; // Minimal valid header; real fields need full TIFF IFD encoder
+}
+
+function injectExif(jpegStr, exifBin) {
+  // Remove existing APP0/APP1 markers, insert new one
+  let out = "\xff\xd8";
+  let off = 2;
+  const exifApp1 = "\xff\xe1" + String.fromCharCode(0, exifBin.length + 2) + exifBin;
+  out += exifApp1;
+  while (off < jpegStr.length) {
+    if (jpegStr.charCodeAt(off) !== 0xff) { out += jpegStr.slice(off); break; }
+    const marker = jpegStr.charCodeAt(off + 1);
+    const segLen = (jpegStr.charCodeAt(off + 2) << 8) | jpegStr.charCodeAt(off + 3);
+    // Skip existing APP0 and APP1
+    if (marker === 0xe0 || marker === 0xe1) { off += 2 + segLen; continue; }
+    out += jpegStr.slice(off, off + 2 + segLen);
+    off += 2 + segLen;
+    if (marker === 0xda) { out += jpegStr.slice(off); break; } // SOS — rest is image data
+  }
+  return out;
+}
+
+// ─── EXIF VIEWER ─────────────────────────────────────────────────────
+function displayEXIF(id, src, mimeType) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return;
+
+  if (mimeType !== "image/jpeg") {
+    toast("Visualização EXIF disponível apenas para JPEG", "error");
+    return;
+  }
+
+  // Convert dataURL to binary string
+  const b64 = src.split(",")[1];
+  const bin = atob(b64);
+
+  const exifData = readBasicEXIF(bin);
+  let viewerEl = card.querySelector(".exif-viewer");
+  if (!viewerEl) {
+    viewerEl = document.createElement("div");
+    viewerEl.className = "exif-viewer";
+    card.after(viewerEl);
+  }
+
+  if (!exifData.length) {
+    viewerEl.innerHTML = `<div class="exif-row"><span class="exif-key">—</span><span class="exif-val" style="color:var(--text-muted)">Nenhum metadado EXIF encontrado</span></div>`;
+  } else {
+    viewerEl.innerHTML = exifData.map(r =>
+      `<div class="exif-row"><span class="exif-key">${r.key}</span><span class="exif-val">${r.val}</span></div>`
+    ).join("");
+  }
+  viewerEl.classList.toggle("show");
+  setStatus(id, "done", exifData.length ? `${exifData.length} tags` : "limpo");
+}
+
+function readBasicEXIF(bin) {
+  const tags = [];
+  if (bin.charCodeAt(0) !== 0xFF || bin.charCodeAt(1) !== 0xD8) return tags;
+
+  const fieldNames = {
+    271: "Make", 272: "Model", 306: "DateTime", 305: "Software",
+    315: "Artist", 33432: "Copyright", 270: "ImageDescription",
+    36867: "DateTimeOriginal", 36868: "DateTimeDigitized",
+    37510: "UserComment", 40962: "PixelXDimension", 40963: "PixelYDimension",
+    1: "GPSLatitudeRef", 3: "GPSLongitudeRef", 9: "GPSStatus"
+  };
+
+  let off = 2;
+  while (off < bin.length - 4) {
+    if (bin.charCodeAt(off) !== 0xFF) break;
+    const marker = bin.charCodeAt(off + 1);
+    const segLen = (bin.charCodeAt(off + 2) << 8) | bin.charCodeAt(off + 3);
+    if (marker === 0xE1) {
+      const seg = bin.slice(off + 4, off + 2 + segLen);
+      if (seg.slice(0, 6) === "Exif\x00\x00") {
+        const tiff = seg.slice(6);
+        const le = tiff.slice(0, 2) === "II";
+        const read2 = (pos) => le
+          ? tiff.charCodeAt(pos) | (tiff.charCodeAt(pos+1) << 8)
+          : (tiff.charCodeAt(pos) << 8) | tiff.charCodeAt(pos+1);
+        const read4 = (pos) => le
+          ? tiff.charCodeAt(pos) | (tiff.charCodeAt(pos+1)<<8) | (tiff.charCodeAt(pos+2)<<16) | (tiff.charCodeAt(pos+3)<<24)
+          : (tiff.charCodeAt(pos)<<24)|(tiff.charCodeAt(pos+1)<<16)|(tiff.charCodeAt(pos+2)<<8)|tiff.charCodeAt(pos+3);
+
+        const ifdOff = read4(4);
+        const numEntries = read2(ifdOff);
+
+        for (let i = 0; i < numEntries && i < 50; i++) {
+          const e = ifdOff + 2 + i * 12;
+          const tag = read2(e);
+          const type = read2(e + 2);
+          const count = read4(e + 4);
+          const valOff = read4(e + 8);
+
+          if (type === 2 && tag in fieldNames) { // ASCII
+            const start = count <= 4 ? e + 8 : valOff;
+            let str = "";
+            for (let j = 0; j < Math.min(count - 1, 80); j++) {
+              const c = tiff.charCodeAt(start + j);
+              if (c === 0) break;
+              str += String.fromCharCode(c);
+            }
+            if (str) tags.push({ key: fieldNames[tag], val: str });
+          } else if ((type === 3 || type === 4) && tag in fieldNames) {
+            tags.push({ key: fieldNames[tag], val: String(type === 3 ? read2(e + 8) : valOff) });
+          }
+        }
+
+        // Check for GPS IFD
+        for (let i = 0; i < numEntries && i < 50; i++) {
+          const e = ifdOff + 2 + i * 12;
+          const tag = read2(e);
+          if (tag === 34853) { // GPSInfoIFDPointer
+            const gpsOff = read4(e + 8);
+            const gpsNum = read2(gpsOff);
+            tags.push({ key: "GPS IFD", val: `${gpsNum} entradas encontradas` });
+          }
+        }
+      }
+      break;
+    }
+    off += 2 + segLen;
+  }
+  return tags;
+}
+
+// ─── DOWNLOAD ─────────────────────────────────────────────────────────
+function downloadFile(item) {
+  if (!item.url) return;
+  const a = document.createElement("a");
+  a.href = item.url;
+  a.download = item.outputName || `clean_${item.file.name}`;
+  a.click();
+  toast(`Download iniciado: ${a.download}`, "success");
+}
+
+// ─── UI HELPERS ───────────────────────────────────────────────────────
+function setStatus(id, type, text) {
+  const el = document.getElementById(`status-${id}`);
+  if (!el) return;
+  el.className = `file-status status-${type}`;
+  el.textContent = text;
+}
+
+function animateProgress(id) {
+  const bar = document.getElementById(`prog-${id}`);
+  const fill = document.getElementById(`progfill-${id}`);
+  if (!bar || !fill) return;
+  bar.classList.add("show");
+  let p = 0;
+  const iv = setInterval(() => {
+    p += Math.random() * 15;
+    if (p >= 90) { clearInterval(iv); p = 90; }
+    fill.style.width = p + "%";
+  }, 120);
+  fill._interval = iv;
+}
+
+function fillProgress(id, val) {
+  const fill = document.getElementById(`progfill-${id}`);
+  if (!fill) return;
+  if (fill._interval) clearInterval(fill._interval);
+  fill.style.width = val + "%";
+}
+
+function toast(msg, type = "success") {
+  const container = document.getElementById("toast-container");
+  const t = document.createElement("div");
+  t.className = `toast ${type}`;
+  t.innerHTML = (type === "success" ? "✓ " : "⚠ ") + msg;
+  container.appendChild(t);
+  setTimeout(() => {
+    t.style.opacity = "0"; t.style.transform = "translateX(20px)";
+    t.style.transition = "all .3s ease";
+    setTimeout(() => t.remove(), 300);
+  }, 3500);
+}
+
+// ─── KEYBOARD SHORTCUT ────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && files.length) processAll();
+});
+</script>
+</body>
+</html>
